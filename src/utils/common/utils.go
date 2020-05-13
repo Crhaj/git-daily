@@ -6,6 +6,10 @@ import (
 )
 
 func ParseBoolFromBytes(byteSlice []byte) (bool, error) {
-	strVal := string(bytes.TrimSpace(byteSlice))
+	strVal := ParseStringFromBytes(byteSlice)
 	return strconv.ParseBool(strVal)
+}
+
+func ParseStringFromBytes(byteSlice []byte) string {
+	return string(bytes.TrimSpace(byteSlice))
 }
