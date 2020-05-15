@@ -37,9 +37,26 @@ func IsDirGitRepo(path string, ch chan<- IsGitRepoResult) {
 
 func StartCrawl(path string) {
 	result, err := runGitCommand(path, "rev-parse", "--is-inside-work-tree")
-	if err != nil && err.Error() != "exit status 128" {
-		log.Fatal("Error while checking if working directory is git repo " + path + " ", err)
-		return
+	if err != nil {
+		if err.Error() != "exit status 128" {
+			log.Fatal("Error while checking if working directory is git repo " + path + " ", err)
+			return
+		} else {
+			// no a repo
+			fmt.Println("Working directory is not a git repo, crawling children...")
+			files := cmd.GetDirContent(path)
+			pathsToRepos := ScanDirsForGitRepos(path, cmd.GetDirectories(files))
+			if len(pathsToRepos) == 0 {
+				fmt.Println("No git repositories found! Ending execution.")
+				return
+			}
+			wg.Add(len(pathsToRepos))
+			for _, path := range pathsToRepos {
+				go processSingleRepo(path, true)
+			}
+			wg.Wait()
+			return
+		}
 	}
 	isRepo, parseErr := strconv.ParseBool(result)
 	if parseErr != nil {
@@ -49,19 +66,7 @@ func StartCrawl(path string) {
 		fmt.Println("Working directory is git repo!", path)
 		processSingleRepo(path, false)
 	} else {
-		fmt.Println("Working directory is not a git repo, crawling children...")
-		files := cmd.GetDirContent(path)
-		pathsToRepos := ScanDirsForGitRepos(path, cmd.GetDirectories(files))
-		if len(pathsToRepos) == 0 {
-			fmt.Println("No git repositories found! Ending execution.")
-			return
-		}
-		wg.Add(len(pathsToRepos))
-		for _, path := range pathsToRepos {
-			go processSingleRepo(path, true)
-		}
-		wg.Wait()
-		return
+		log.Fatal("Unexpected error when checking if dir at", path, "is git repository, ending execution...")
 	}
 }
 
