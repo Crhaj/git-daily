@@ -8,10 +8,18 @@ import (
 
 var InitialWd = cmd.Pwd()
 
+const initMsg = `***********************************************
+             Welcome to git-daily              
+***********************************************`
+
+const successMsg = `
+***********************************************
+    Your Master branches are now up to date    
+***********************************************`
+
 func main() {
-	fmt.Println("************ Welcome to Git-Daily ************")
+	fmt.Println(initMsg)
 	fmt.Printf("Program was run from path: %v\n", InitialWd)
-	//files := cmd.GetDirContent(InitialWd)
-	// cmd.GetDirectories(files)
 	git.StartCrawl(InitialWd)
+	fmt.Println(successMsg)
 }

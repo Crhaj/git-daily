@@ -2,11 +2,18 @@ package git
 
 import (
 	"fmt"
+	"git-daily/src/utils/cmd"
 	"git-daily/src/utils/common"
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
+	"sync"
 )
+
+const MasterBranch = "master"
+
+var wg sync.WaitGroup
 
 type IsGitRepoResult struct {
 	IsGitRepo bool
@@ -14,11 +21,12 @@ type IsGitRepoResult struct {
 }
 
 func IsDirGitRepo(path string, ch chan<- IsGitRepoResult) {
-	out, err := exec.Command("git",  "-C", path, "rev-parse", "--is-inside-work-tree").CombinedOutput()
+	result, err := runGitCommand(path, "rev-parse", "--is-inside-work-tree")
 	if err != nil {
 		ch <- IsGitRepoResult{IsGitRepo: false, path: path}
+		return
 	}
-	isRepo, parseErr := common.ParseBoolFromBytes(out)
+	isRepo, parseErr := strconv.ParseBool(result)
 	if parseErr != nil {
 		fmt.Println("Error parsing check result for:", path, parseErr)
 		ch <- IsGitRepoResult{IsGitRepo: false, path: path}
@@ -27,23 +35,36 @@ func IsDirGitRepo(path string, ch chan<- IsGitRepoResult) {
 }
 
 func StartCrawl(path string) {
-	out, err := exec.Command("git",  "-C", path, "rev-parse", "--is-inside-work-tree").CombinedOutput()
+	result, err := runGitCommand(path, "rev-parse", "--is-inside-work-tree")
 	if err != nil && err.Error() != "exit status 128" {
 		log.Fatal("Error while checking if working directory is git repo " + path + " ", err)
 		return
 	}
-	isRepo, parseErr := common.ParseBoolFromBytes(out)
+	isRepo, parseErr := strconv.ParseBool(result)
 	if parseErr != nil {
-		fmt.Println("Could not determine if working dir is git repo. Will continue with children...", parseErr)
+		fmt.Println("Could not determine if working dir is git repo. Continuing with children...", parseErr)
 	}
 	if isRepo {
 		fmt.Println("Working directory is git repo!", path)
-		processSingleRepo(path)
+		processSingleRepo(path, false)
+	} else {
+		fmt.Println("Working directory is not a git repo, crawling children...")
+		files := cmd.GetDirContent(path)
+		pathsToRepos := ScanDirsForGitRepos(path, cmd.GetDirectories(files))
+		if len(pathsToRepos) == 0 {
+			fmt.Println("No git repositories found! Ending execution.")
+			return
+		}
+		wg.Add(len(pathsToRepos))
+		for _, path := range pathsToRepos {
+			go processSingleRepo(path, true)
+		}
+		wg.Wait()
+		return
 	}
 }
 
-// todo - shake duplicate results for same repo
-func ScanDirsForGitRepos(path string, dirs []os.FileInfo) {
+func ScanDirsForGitRepos(path string, dirs []os.FileInfo) []string {
 	results := make(chan IsGitRepoResult)
 	fmt.Print("\nStarting scan for git repositories...\n")
 	var validRepos []string
@@ -51,18 +72,24 @@ func ScanDirsForGitRepos(path string, dirs []os.FileInfo) {
 	for i := 0; i < len(dirs); i++ {
 		processGitReposScanResult(results, &validRepos)
 	}
-	fmt.Println(validRepos)
+	return validRepos
 }
 
-func processSingleRepo(path string) {
+func processSingleRepo(path string, shouldRemoveFromWg bool) {
+	defer func() {
+		if shouldRemoveFromWg {
+			wg.Done()
+		}
+	}()
+
 	FetchPrune(path)
 	initialBranchName := GetCurrentBranchName(path)
 	shouldStash := HasUnstashedChanges(path)
 	if shouldStash {
 		Stash(path, false)
 	}
-	if initialBranchName != "master" {
-		Checkout(path, "master", initialBranchName)
+	if initialBranchName != MasterBranch {
+		Checkout(path, MasterBranch, initialBranchName)
 	}
 	Pull(path)
 	Checkout(path, initialBranchName, initialBranchName)
@@ -72,28 +99,28 @@ func processSingleRepo(path string) {
 }
 
 func FetchPrune(path string) {
-	_, _ = runGitCommand("-C", path, "fetch", "--prune")
+	_, _ = runGitCommand(path, "fetch", "--prune")
 }
 
 // todo - create and store named stash?
 func Stash(path string, pop bool) {
 	if pop {
-		_, _ = runGitCommand("-C", path, "stash", "pop")
+		_, _ = runGitCommand(path, "stash", "pop")
 	} else {
-		_, _ = runGitCommand("-C", path, "stash")
+		_, _ = runGitCommand(path, "stash")
 	}
 }
 
 // todo - return to init branch and pop if fails?
 func Pull(path string) {
-	_, err := runGitCommand("-C", path, "pull")
+	_, err := runGitCommand(path, "pull")
 	if err != nil {
 		fmt.Println("Could not pull origin", err)
 	}
 }
 
 func Checkout(path string, branchName string, initialBranchName string) {
-	_, err := runGitCommand("-C", path, "checkout", branchName)
+	_, err := runGitCommand(path, "checkout", branchName)
 	if err != nil {
 		if GetCurrentBranchName(path) != initialBranchName && branchName != initialBranchName {
 			Checkout(path, initialBranchName, initialBranchName)
@@ -104,7 +131,7 @@ func Checkout(path string, branchName string, initialBranchName string) {
 }
 
 func GetCurrentBranchName(path string) string {
-	result, err := runGitCommand("-C", path, "symbolic-ref", "--short", "HEAD")
+	result, err := runGitCommand(path, "symbolic-ref", "--short", "HEAD")
 	if err != nil {
 		log.Fatal("Could not get current branch name, stopping...")
 	}
@@ -112,22 +139,27 @@ func GetCurrentBranchName(path string) string {
 }
 
 func HasUnstashedChanges(path string) bool {
-	result, err := runGitCommand("-C", path, "status", "--untracked-files=no", "--porcelain")
+	result, err := runGitCommand(path, "status", "--untracked-files=no", "--porcelain")
 	if err != nil {
 		log.Fatal("Error: cannot determine if repo has unstashed changes, stopping...")
 	}
 	return len(result) > 0
 }
 
-func runGitCommand(args... string) (string, error) {
-	out, err := exec.Command("git", args...).CombinedOutput()
+func runGitCommand(path string, args... string) (string, error) {
+	params := append([]string{"-C", path}, args...)
+	out, err := exec.Command("git", params...).CombinedOutput()
 	if err != nil {
-		fmt.Println("Error while running git command with args: ", args)
-		fmt.Println(err)
+		fmt.Println("Error in:", append([]string{"git"}, params...), err)
 		return "", err
 	}
 	parsedResult := common.ParseStringFromBytes(out)
-	fmt.Println(parsedResult)
+	fmt.Println("Running:", append([]string{"git"}, params...))
+	if parsedResult != "" {
+		fmt.Println(parsedResult)
+	} else {
+		fmt.Println("Ok!")
+	}
 	return parsedResult, nil
 }
 
