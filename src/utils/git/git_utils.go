@@ -14,6 +14,8 @@ import (
 
 const MasterBranch = "master"
 
+const NotAGitRepo = "exit status 128"
+
 var wg sync.WaitGroup
 
 type IsGitRepoResult struct {
@@ -38,7 +40,7 @@ func IsDirGitRepo(path string, ch chan<- IsGitRepoResult) {
 func StartCrawl(path string) {
 	result, err := runGitCommand(path, "rev-parse", "--is-inside-work-tree")
 	if err != nil {
-		if err.Error() != "exit status 128" {
+		if err.Error() != NotAGitRepo {
 			log.Fatal("Error while checking if working directory is git repo " + path + " ", err)
 			return
 		} else {
