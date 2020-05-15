@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"sync"
 )
@@ -165,7 +166,7 @@ func runGitCommand(path string, args... string) (string, error) {
 
 func runGitReposScans(path string, dirs []os.FileInfo, results chan<- IsGitRepoResult) {
 	for _, dir := range dirs {
-		go IsDirGitRepo(path + "\\" + dir.Name(), results)
+		go IsDirGitRepo(filepath.FromSlash(path + string(os.PathSeparator) + dir.Name()), results)
 	}
 }
 

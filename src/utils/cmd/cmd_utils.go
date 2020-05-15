@@ -5,14 +5,15 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 )
 
 func Pwd() string {
-	dir, err := os.Getwd()
+	path, err := os.Getwd()
 	if err != nil {
 		log.Fatal("Failed to get path to working directory", err)
 	}
-	return dir
+	return filepath.FromSlash(path)
 }
 
 func GetDirContent(path string) []os.FileInfo {
