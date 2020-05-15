@@ -83,6 +83,8 @@ func ScanDirsForGitRepos(path string, dirs []os.FileInfo) []string {
 	return validRepos
 }
 
+// todo - popping a stash can result in merge conflict if that happens the program
+//  leaves the directory in the *resolve conflict* state. Is it wanted? Doesn't seem entirely wrong.
 func processSingleRepo(path string, shouldRemoveFromWg bool) {
 	defer func() {
 		if shouldRemoveFromWg {
