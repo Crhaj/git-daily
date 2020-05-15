@@ -90,6 +90,13 @@ func processSingleRepo(path string, shouldRemoveFromWg bool) {
 		Stash(path, false)
 	}
 	if initialBranchName != MasterBranch {
+		if initialBranchName == "" {
+			fmt.Println("Failed to get current branch name, skipping update of repo")
+			if shouldStash {
+				Stash(path, true)
+			}
+			return
+		}
 		Checkout(path, MasterBranch, initialBranchName)
 	}
 	Pull(path)
@@ -134,7 +141,8 @@ func Checkout(path string, branchName string, initialBranchName string) {
 func GetCurrentBranchName(path string) string {
 	result, err := runGitCommand(path, "symbolic-ref", "--short", "HEAD")
 	if err != nil {
-		log.Fatal("Could not get current branch name, stopping...")
+		fmt.Println("Could not get current branch name", err)
+		return ""
 	}
 	return result
 }
