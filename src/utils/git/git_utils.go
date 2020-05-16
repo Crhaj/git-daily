@@ -33,6 +33,7 @@ func IsDirGitRepo(path string, ch chan<- IsGitRepoResult) {
 	if parseErr != nil {
 		fmt.Println("Error parsing check result for:", path, parseErr)
 		ch <- IsGitRepoResult{IsGitRepo: false, path: path}
+		return
 	}
 	ch <- IsGitRepoResult{IsGitRepo: isRepo, path: path}
 }
@@ -77,9 +78,7 @@ func ScanDirsForGitRepos(path string, dirs []os.FileInfo) []string {
 	fmt.Print("\nStarting scan for git repositories...\n")
 	var validRepos []string
 	go runGitReposScans(path, dirs, results)
-	for i := 0; i < len(dirs); i++ {
-		processGitReposScanResult(results, &validRepos)
-	}
+	processGitReposScanResult(results, &validRepos, len(dirs))
 	return validRepos
 }
 
@@ -124,7 +123,7 @@ func Stash(path string, pop bool) {
 	if pop {
 		_, _ = runGitCommand(path, "stash", "pop")
 	} else {
-		_, _ = runGitCommand(path, "stash")
+		_, _ = runGitCommand(path, "stash", "save", "git-daily temporary stash")
 	}
 }
 
@@ -166,13 +165,14 @@ func HasUnstashedChanges(path string) bool {
 
 func runGitCommand(path string, args... string) (string, error) {
 	params := append([]string{"-C", path}, args...)
+	fullCommand := append([]string{"git"}, params...)
 	out, err := exec.Command("git", params...).CombinedOutput()
 	if err != nil {
-		fmt.Println("Error in:", append([]string{"git"}, params...), err)
+		fmt.Println("Error in:", fullCommand, err)
 		return "", err
 	}
 	parsedResult := common.ParseStringFromBytes(out)
-	fmt.Println("Running:", append([]string{"git"}, params...))
+	fmt.Println("Running:", fullCommand)
 	if parsedResult != "" {
 		fmt.Println(parsedResult)
 	} else {
@@ -187,12 +187,14 @@ func runGitReposScans(path string, dirs []os.FileInfo, results chan<- IsGitRepoR
 	}
 }
 
-func processGitReposScanResult(results <-chan IsGitRepoResult, outPutSlice *[]string) {
-	scanResult := <-results
-	if scanResult.IsGitRepo {
-		*outPutSlice = append(*outPutSlice, scanResult.path)
-		fmt.Println(scanResult.path + " is valid git repo")
-	} else {
-		fmt.Println(scanResult.path + " is not a git repo")
+func processGitReposScanResult(results <-chan IsGitRepoResult, outPutSlice *[]string, numberOfScannedDirs int) {
+	for i := 0; i < numberOfScannedDirs; i++ {
+		scanResult := <-results
+		if scanResult.IsGitRepo {
+			*outPutSlice = append(*outPutSlice, scanResult.path)
+			fmt.Println(scanResult.path + " is valid git repo")
+		} else {
+			fmt.Println(scanResult.path + " is not a git repo")
+		}
 	}
 }
